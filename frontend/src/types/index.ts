@@ -14,6 +14,7 @@ export interface Almacen {
   proyecto: string;
   activo: boolean;
   responsableId: number | null;
+  responsable?: { id: number; nombre: string } | null;
 }
 
 export interface Categoria {
@@ -40,6 +41,8 @@ export interface MovimientoDetalle {
   materialId: number;
   material: Material;
   cantidad: number;
+  cantidadSolicitada?: number;
+  cantidadRetornada?: number;
 }
 
 export interface Entrada {

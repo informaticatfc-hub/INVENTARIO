@@ -5,6 +5,9 @@ import * as ctrl from "../controllers/materiales.controller.ts";
 const router = Router();
 router.use(authenticate);
 
+router.get('/categorias',  ctrl.listarCategorias);
+router.post('/categorias', authorize('ADMIN'), ctrl.crearCategoria);
+
 router.get("/",    ctrl.listar);
 router.post("/",   authorize("ADMIN", "ALMACENISTA"), ctrl.crear);
 router.get("/:id", ctrl.obtener);

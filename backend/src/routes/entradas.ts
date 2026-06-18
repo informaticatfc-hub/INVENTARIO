@@ -8,6 +8,5 @@ router.use(authenticate);
 router.get("/",    ctrl.listar);
 router.post("/",   authorize("ADMIN", "ALMACENISTA"), ctrl.crear);
 router.get("/:id", ctrl.obtener);
-router.put("/:id", authorize("ADMIN", "ALMACENISTA"), ctrl.actualizar);
 
 export default router;

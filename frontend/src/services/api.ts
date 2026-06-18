@@ -1,18 +1,18 @@
 import axios from 'axios';
 
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api',
-  timeout: 15000,
-});
+const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
-// Adjuntar access token en cada petición
+const api = axios.create({ baseURL: BASE, timeout: 15000 });
+
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('accessToken');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  const raw = localStorage.getItem('inv-auth');
+  if (raw) {
+    const token = JSON.parse(raw)?.state?.accessToken;
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+  }
   return config;
 });
 
-// Renovar token automáticamente al recibir 401
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
@@ -20,17 +20,19 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true;
       try {
-        const refreshToken = localStorage.getItem('refreshToken');
-        const { data } = await axios.post(
-          `${import.meta.env.VITE_API_URL || 'http://localhost:3000/api'}/auth/refresh`,
-          { refreshToken }
-        );
-        localStorage.setItem('accessToken',  data.accessToken);
-        localStorage.setItem('refreshToken', data.refreshToken);
+        const raw = localStorage.getItem('inv-auth');
+        const refreshToken = raw ? JSON.parse(raw)?.state?.refreshToken : null;
+        const { data } = await axios.post(`${BASE}/auth/refresh`, { refreshToken });
+
+        const stored = JSON.parse(localStorage.getItem('inv-auth') || '{}');
+        stored.state.accessToken  = data.accessToken;
+        stored.state.refreshToken = data.refreshToken;
+        localStorage.setItem('inv-auth', JSON.stringify(stored));
+
         original.headers.Authorization = `Bearer ${data.accessToken}`;
         return api(original);
       } catch {
-        localStorage.clear();
+        localStorage.removeItem('inv-auth');
         window.location.href = '/login';
       }
     }
