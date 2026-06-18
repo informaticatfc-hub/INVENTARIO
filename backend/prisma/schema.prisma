@@ -1,0 +1,305 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────
+// USUARIOS Y ROLES
+// ─────────────────────────────────────────
+
+enum Rol {
+  ADMIN
+  ALMACENISTA
+  SUPERVISOR
+  SOLO_LECTURA
+}
+
+model Usuario {
+  id           Int       @id @default(autoincrement())
+  nombre       String    @db.VarChar(100)
+  email        String    @unique @db.VarChar(150)
+  passwordHash String    @map("password_hash") @db.VarChar(255)
+  rol          Rol       @default(ALMACENISTA)
+  activo       Boolean   @default(true)
+  creadoEn     DateTime  @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  // Almacén donde trabaja el usuario
+  almacenId    Int?      @map("almacen_id")
+  almacen      Almacen?  @relation("UsuarioAlmacen", fields: [almacenId], references: [id])
+
+  // Almacenes de los que es responsable
+  almacenesResponsable Almacen[] @relation("AlmacenResponsable")
+
+  // Relaciones de autoría
+  entradasAutorizadas  Entrada[]      @relation("EntradaAutorizo")
+  entradasCreadas      Entrada[]      @relation("EntradaCreatedBy")
+  salidasCreadas       Salida[]
+  transferenciasSolicito Transferencia[] @relation("TransferenciaSolicito")
+  transferenciasEntrego  Transferencia[] @relation("TransferenciaEntrego")
+  perdidasAutorizadas  Perdida[]
+  sessionTokens        SessionToken[]
+  auditorias           Auditoria[]
+
+  @@map("usuarios")
+}
+
+model SessionToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique @db.VarChar(512)
+  usuarioId Int      @map("usuario_id")
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id])
+  expiresAt DateTime @map("expires_at")
+  creadoEn  DateTime @default(now()) @map("creado_en")
+
+  @@map("session_tokens")
+}
+
+// ─────────────────────────────────────────
+// ALMACENES Y CATÁLOGO
+// ─────────────────────────────────────────
+
+model Almacen {
+  id          Int      @id @default(autoincrement())
+  nombre      String   @db.VarChar(100)
+  proyecto    String   @db.VarChar(100)
+  activo      Boolean  @default(true)
+  creadoEn    DateTime @default(now()) @map("creado_en")
+
+  // Responsable asignado al almacén (relación independiente)
+  responsableId Int?     @map("responsable_id")
+  responsable   Usuario? @relation("AlmacenResponsable", fields: [responsableId], references: [id])
+
+  // Usuarios que trabajan en este almacén
+  usuarios      Usuario[] @relation("UsuarioAlmacen")
+  stock         Stock[]
+  entradas      Entrada[]
+  salidas       Salida[]
+  transferenciasOrigen  Transferencia[] @relation("TransferenciaOrigen")
+  transferenciasDestino Transferencia[] @relation("TransferenciaDestino")
+  perdidas      Perdida[]
+
+  @@map("almacenes")
+}
+
+model Categoria {
+  id          Int        @id @default(autoincrement())
+  nombre      String     @unique @db.VarChar(100)
+  descripcion String?    @db.VarChar(255)
+  activo      Boolean    @default(true)
+  materiales  Material[]
+
+  @@map("categorias")
+}
+
+model Material {
+  id           Int       @id @default(autoincrement())
+  nombre       String    @db.VarChar(150)
+  unidadMedida String    @map("unidad_medida") @db.VarChar(30)
+  descripcion  String?   @db.VarChar(255)
+  stockMinimo  Int       @default(0) @map("stock_minimo")
+  activo       Boolean   @default(true)
+
+  categoriaId  Int       @map("categoria_id")
+  categoria    Categoria @relation(fields: [categoriaId], references: [id])
+
+  stock        Stock[]
+  entradasDetalle   EntradaDetalle[]
+  salidasDetalle    SalidaDetalle[]
+  transferenciasDetalle TransferenciaDetalle[]
+  perdidasDetalle   PerdidaDetalle[]
+
+  @@map("materiales")
+}
+
+model Stock {
+  id              Int      @id @default(autoincrement())
+  cantidadActual  Int      @default(0) @map("cantidad_actual")
+  actualizadoEn   DateTime @updatedAt @map("actualizado_en")
+
+  almacenId  Int      @map("almacen_id")
+  almacen    Almacen  @relation(fields: [almacenId], references: [id])
+  materialId Int      @map("material_id")
+  material   Material @relation(fields: [materialId], references: [id])
+
+  @@unique([almacenId, materialId])
+  @@map("stock")
+}
+
+// ─────────────────────────────────────────
+// MOVIMIENTOS
+// ─────────────────────────────────────────
+
+model Entrada {
+  id         Int      @id @default(autoincrement())
+  folio      String   @unique @db.VarChar(50)
+  proveedor  String   @db.VarChar(150)
+  comentario String?  @db.Text
+  fecha      DateTime @default(now())
+  creadoEn   DateTime @default(now()) @map("creado_en")
+
+  almacenId  Int     @map("almacen_id")
+  almacen    Almacen @relation(fields: [almacenId], references: [id])
+
+  autorizoId Int     @map("autorizo_id")
+  autorizo   Usuario @relation("EntradaAutorizo", fields: [autorizoId], references: [id])
+
+  creadoPorId Int     @map("creado_por_id")
+  creadoPor   Usuario @relation("EntradaCreatedBy", fields: [creadoPorId], references: [id])
+
+  detalle    EntradaDetalle[]
+
+  @@map("entradas")
+}
+
+model EntradaDetalle {
+  id       Int @id @default(autoincrement())
+  cantidad Int
+
+  entradaId  Int      @map("entrada_id")
+  entrada    Entrada  @relation(fields: [entradaId], references: [id], onDelete: Cascade)
+  materialId Int      @map("material_id")
+  material   Material @relation(fields: [materialId], references: [id])
+
+  @@map("entradas_detalle")
+}
+
+enum EstadoSalida {
+  ACTIVA
+  RETORNO_PARCIAL
+  RETORNO_TOTAL
+}
+
+model Salida {
+  id         Int          @id @default(autoincrement())
+  folio      String       @unique @db.VarChar(50)
+  tramo      String       @db.VarChar(100)
+  solicito   String       @db.VarChar(100)
+  recibio    String       @db.VarChar(100)
+  entrego    String       @db.VarChar(100)
+  comentario String?      @db.Text
+  retornable Boolean      @default(false)
+  estado     EstadoSalida @default(ACTIVA)
+  fecha      DateTime     @default(now())
+  creadoEn   DateTime     @default(now()) @map("creado_en")
+
+  almacenId   Int     @map("almacen_id")
+  almacen     Almacen @relation(fields: [almacenId], references: [id])
+  creadoPorId Int     @map("creado_por_id")
+  creadoPor   Usuario @relation(fields: [creadoPorId], references: [id])
+
+  detalle    SalidaDetalle[]
+
+  @@map("salidas")
+}
+
+model SalidaDetalle {
+  id                Int @id @default(autoincrement())
+  cantidadSolicitada Int @map("cantidad_solicitada")
+  cantidadRetornada  Int @default(0) @map("cantidad_retornada")
+
+  salidaId   Int      @map("salida_id")
+  salida     Salida   @relation(fields: [salidaId], references: [id], onDelete: Cascade)
+  materialId Int      @map("material_id")
+  material   Material @relation(fields: [materialId], references: [id])
+
+  @@map("salidas_detalle")
+}
+
+enum EstadoTransferencia {
+  PENDIENTE
+  ENVIADO
+  RECIBIDO
+}
+
+model Transferencia {
+  id         Int                 @id @default(autoincrement())
+  folio      String              @unique @db.VarChar(50)
+  estado     EstadoTransferencia @default(PENDIENTE)
+  solicito   String              @db.VarChar(100)
+  recibio    String?             @db.VarChar(100)
+  entrego    String              @db.VarChar(100)
+  comentario String?             @db.Text
+  fecha      DateTime            @default(now())
+  creadoEn   DateTime            @default(now()) @map("creado_en")
+
+  almacenOrigenId  Int     @map("almacen_origen_id")
+  almacenOrigen    Almacen @relation("TransferenciaOrigen", fields: [almacenOrigenId], references: [id])
+  almacenDestinoId Int     @map("almacen_destino_id")
+  almacenDestino   Almacen @relation("TransferenciaDestino", fields: [almacenDestinoId], references: [id])
+
+  solicitoUsuarioId Int?     @map("solicito_usuario_id")
+  solicitoUsuario   Usuario? @relation("TransferenciaSolicito", fields: [solicitoUsuarioId], references: [id])
+  entregoUsuarioId  Int?     @map("entrego_usuario_id")
+  entregoUsuario    Usuario? @relation("TransferenciaEntrego", fields: [entregoUsuarioId], references: [id])
+
+  detalle TransferenciaDetalle[]
+
+  @@map("transferencias")
+}
+
+model TransferenciaDetalle {
+  id       Int @id @default(autoincrement())
+  cantidad Int
+
+  transferenciaId Int           @map("transferencia_id")
+  transferencia   Transferencia @relation(fields: [transferenciaId], references: [id], onDelete: Cascade)
+  materialId      Int           @map("material_id")
+  material        Material      @relation(fields: [materialId], references: [id])
+
+  @@map("transferencias_detalle")
+}
+
+model Perdida {
+  id         Int      @id @default(autoincrement())
+  folio      String   @unique @db.VarChar(50)
+  motivo     String   @db.VarChar(255)
+  comentario String?  @db.Text
+  fecha      DateTime @default(now())
+  creadoEn   DateTime @default(now()) @map("creado_en")
+
+  almacenId  Int     @map("almacen_id")
+  almacen    Almacen @relation(fields: [almacenId], references: [id])
+  autorizoId Int     @map("autorizo_id")
+  autorizo   Usuario @relation(fields: [autorizoId], references: [id])
+
+  detalle PerdidaDetalle[]
+
+  @@map("perdidas")
+}
+
+model PerdidaDetalle {
+  id       Int @id @default(autoincrement())
+  cantidad Int
+
+  perdidaId  Int      @map("perdida_id")
+  perdida    Perdida  @relation(fields: [perdidaId], references: [id], onDelete: Cascade)
+  materialId Int      @map("material_id")
+  material   Material @relation(fields: [materialId], references: [id])
+
+  @@map("perdidas_detalle")
+}
+
+// ─────────────────────────────────────────
+// AUDITORÍA
+// ─────────────────────────────────────────
+
+model Auditoria {
+  id              Int      @id @default(autoincrement())
+  accion          String   @db.VarChar(50)
+  tabla           String   @db.VarChar(50)
+  registroId      Int?     @map("registro_id")
+  datosAnteriores Json?    @map("datos_anteriores")
+  datosNuevos     Json?    @map("datos_nuevos")
+  ip              String?  @db.VarChar(45)
+  fecha           DateTime @default(now())
+
+  usuarioId Int?     @map("usuario_id")
+  usuario   Usuario? @relation(fields: [usuarioId], references: [id])
+
+  @@map("auditoria")
+}
